@@ -1,6 +1,8 @@
-use log::{error, info};
+use log::{debug, error, info};
 use std::{net::Ipv4Addr, sync::LazyLock};
 use tokio::net::UdpSocket;
+
+mod packet;
 
 const ECHONET_LITE_PORT: u16 = 3610;
 static MULTICAST_ADDR_V4: LazyLock<Ipv4Addr> = LazyLock::new(|| "224.0.23.0".parse().unwrap());
@@ -32,7 +34,16 @@ async fn main() -> anyhow::Result<()> {
                         continue;
                     }
                 };
-                info!("[{}] {:?}", addr.ip().to_canonical(), msg);
+                let ipv4 = addr.ip().to_canonical();
+                debug!("[{}] {:?}", ipv4, msg);
+                match packet::Packet::try_from(msg) {
+                    Ok(packet) => {
+                        info!("[{}] {:?}", ipv4, packet);
+                    }
+                    Err(e) => {
+                        error!("[{}] Failed to parse a packet: {:?}", ipv4, e);
+                    }
+                }
             }
         }
     }
