@@ -1,0 +1,69 @@
+name: Build and Release Rust CLI
+
+on:
+  push:
+    tags:
+      - "v*.*.*" 
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Cross (for cross-compilation)
+        run: cargo install cross
+
+      - name: Build binary
+        env:
+          binary_path: ./target/${{ matrix.target }}/release/${{ github.event.repository.name }}
+          file_name: ${{ github.event.repository.name }}_${{ matrix.target }}_${{ github.ref_name }}.zip
+        run: |
+          cross build --release --target ${{ matrix.target }}
+          zip -j ${{ env.file_name }} ${{ env.binary_path }}
+          mkdir -p ./dist
+          mv ${{ env.file_name }} ./dist/
+
+      - name: Upload binary
+        env:
+          file_name: ${{ github.event.repository.name }}_${{ matrix.target }}_${{ github.ref_name }}.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.file_name }}
+          path: ./dist/${{ env.file_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./dist
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+        run: |
+          files=$(find ./dist -type f -name '*')
+          gh release create "${{ env.tag }}" $files --repo="$GITHUB_REPOSITORY" --title="${{ env.tag }}" --generate-notes
