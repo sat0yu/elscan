@@ -4,7 +4,7 @@ use std::{
     io::{Cursor, Read},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ElU8(u8);
 impl fmt::Debug for ElU8 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -22,7 +22,7 @@ impl From<ElU8> for usize {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ElU16(u16);
 impl fmt::Debug for ElU16 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -54,7 +54,7 @@ pub struct Packet {
     pub props: Vec<Prop>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ESV {
     SetI,
     SetC,
@@ -77,9 +77,17 @@ pub enum ESV {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Prop {
-    pub epc: ElU8,      // ECHONET Lite Property code (1 Byte)
-    pub pdc: ElU8,      // Property data counter (1 Byte)
-    pub edt: Vec<ElU8>, // Property value data (Specified by PDC)
+    pub epc: ElU8, // ECHONET Lite Property code (1 Byte)
+    pub pdc: ElU8, // Property data counter (1 Byte)
+    pub edt: EDT,  // Property value data (Specified by PDC)
+}
+
+#[derive(Debug, PartialEq)]
+pub struct EDT(Vec<ElU8>);
+impl From<Vec<u8>> for EDT {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value.into_iter().map(ElU8).collect())
+    }
 }
 
 impl TryFrom<&[u8]> for Packet {
@@ -131,18 +139,17 @@ impl TryFrom<&[u8]> for Packet {
             }
             let epc = ElU8(cursor.get_u8());
             let _pdc = cursor.get_u8();
-            let mut edt: Vec<ElU8> = vec![];
-            if _pdc > 0 {
-                if cursor.remaining() < _pdc.into() {
-                    anyhow::bail!("invalid property data");
-                }
-                let data = cursor.copy_to_bytes(_pdc.into());
-                edt = data.to_vec().into_iter().map(ElU8).collect();
+            if cursor.remaining() < _pdc.into() {
+                anyhow::bail!("invalid property data");
+            }
+            let mut _edt = Vec::with_capacity(_pdc.into());
+            for _ in 0.._pdc {
+                _edt.push(ElU8(cursor.get_u8()));
             }
             let prop = Prop {
                 epc,
                 pdc: ElU8(_pdc),
-                edt,
+                edt: EDT(_edt),
             };
             props.push(prop);
         }
@@ -179,6 +186,100 @@ impl TryFrom<u8> for ESV {
             0x53 => Ok(Self::InfSNA),
             0x5E => Ok(Self::SetGetSNA),
             _ => anyhow::bail!("invalid ESV"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_try_from_packet() {
+        {
+            let data = [
+                0x10, 0x81, // EHD1, EHD1
+                0xaa, 0x01, // TID
+                0x05, 0xFF, 0x01, // SEOJ
+                0x0E, 0xF0, 0x01, // DEOJ
+                0x62, // ESV
+                0x02, // OPC
+                0x82, // EPC1
+                0x00, // PDC1
+                0x83, // EPC2
+                0x00, // PDC2
+            ];
+            let packet = Packet::try_from(&data[..]).unwrap();
+            assert_eq!(packet.tid, ElU16(0xaa01));
+            assert_eq!(packet.seoj, [ElU8(0x05), ElU8(0xff), ElU8(0x01)]);
+            assert_eq!(packet.deoj, [ElU8(0x0e), ElU8(0xf0), ElU8(0x01)]);
+            assert_eq!(packet.esv, ESV::Get);
+            assert_eq!(packet.opc, ElU8(0x02));
+            assert_eq!(packet.props.len(), 2);
+            assert_eq!(packet.props[0].epc, ElU8(0x82));
+            assert_eq!(packet.props[0].pdc, ElU8(0x00));
+            assert_eq!(packet.props[0].edt, EDT(vec![]));
+            assert_eq!(packet.props[1].epc, ElU8(0x83));
+            assert_eq!(packet.props[1].pdc, ElU8(0x00));
+            assert_eq!(packet.props[1].edt, EDT(vec![]));
+        }
+        {
+            let data = [
+                0x10, 0x81, // EHD1, EHD1
+                0xbb, 0x01, // TID
+                0x01, 0x30, 0x01, // SEOJ
+                0x05, 0xff, 0x01, // DEOJ
+                0x72, // ESV
+                0x04, // OPC
+                0x82, // EPC1
+                0x04, // PDC1
+                0x00, 0x00, 0x4a, 0x00, // EDT1
+                0x83, // EPC2
+                0x11, // PDC2
+                0xfe, 0x00, 0x00, 0x08, 0xcc, 0x47, 0x40, 0x21, 0xa6, 0x5b, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, // EDT2
+                0x9e, // EPC3
+                0x09, // PDC3
+                0x08, 0x80, 0x81, 0x8f, 0x93, 0xa0, 0xa3, 0xb0, 0xb3, // EDT3
+                0x9f, // EPC4
+                0x11, // PDC4
+                0x12, 0x0d, 0x01, 0x01, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x08, 0x00,
+                0x02, 0x0a, 0x03, // EDT4
+            ];
+            let packet = Packet::try_from(&data[..]).unwrap();
+            assert_eq!(packet.tid, ElU16(0xbb01));
+            assert_eq!(packet.seoj, [ElU8(0x01), ElU8(0x30), ElU8(0x01)]);
+            assert_eq!(packet.deoj, [ElU8(0x05), ElU8(0xff), ElU8(0x01)]);
+            assert_eq!(packet.esv, ESV::GetRes);
+            assert_eq!(packet.opc, ElU8(0x04));
+            assert_eq!(packet.props.len(), 4);
+            assert_eq!(packet.props[0].epc, ElU8(0x82));
+            assert_eq!(packet.props[0].pdc, ElU8(0x04));
+            assert_eq!(packet.props[0].edt, EDT::from(vec![0x00, 0x00, 0x4a, 0x00]));
+            assert_eq!(packet.props[1].epc, ElU8(0x83));
+            assert_eq!(packet.props[1].pdc, ElU8(0x11));
+            assert_eq!(
+                packet.props[1].edt,
+                EDT::from(vec![
+                    0xfe, 0x00, 0x00, 0x08, 0xcc, 0x47, 0x40, 0x21, 0xa6, 0x5b, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00
+                ])
+            );
+            assert_eq!(packet.props[2].epc, ElU8(0x9e));
+            assert_eq!(packet.props[2].pdc, ElU8(0x09));
+            assert_eq!(
+                packet.props[2].edt,
+                EDT::from(vec![0x08, 0x80, 0x81, 0x8f, 0x93, 0xa0, 0xa3, 0xb0, 0xb3])
+            );
+            assert_eq!(packet.props[3].epc, ElU8(0x9f));
+            assert_eq!(packet.props[3].pdc, ElU8(0x11));
+            assert_eq!(
+                packet.props[3].edt,
+                EDT::from(vec![
+                    0x12, 0x0d, 0x01, 0x01, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x08,
+                    0x00, 0x02, 0x0a, 0x03
+                ])
+            );
         }
     }
 }
