@@ -3,6 +3,7 @@ use std::{net::Ipv4Addr, sync::LazyLock};
 use tokio::net::UdpSocket;
 
 mod packet;
+mod response;
 
 const ECHONET_LITE_PORT: u16 = 3610;
 static MULTICAST_ADDR_V4: LazyLock<Ipv4Addr> = LazyLock::new(|| "224.0.23.0".parse().unwrap());

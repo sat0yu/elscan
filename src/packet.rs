@@ -5,15 +5,10 @@ use std::{
 };
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct ElU8(u8);
+pub struct ElU8(pub u8);
 impl fmt::Debug for ElU8 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:02X}", self.0)
-    }
-}
-impl From<ElU8> for u8 {
-    fn from(value: ElU8) -> Self {
-        value.0
     }
 }
 impl From<ElU8> for usize {
@@ -23,15 +18,10 @@ impl From<ElU8> for usize {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct ElU16(u16);
+pub struct ElU16(pub u16);
 impl fmt::Debug for ElU16 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:02X}", self.0)
-    }
-}
-impl From<ElU16> for u16 {
-    fn from(value: ElU16) -> Self {
-        value.0
     }
 }
 impl From<ElU16> for usize {
@@ -43,15 +33,50 @@ impl From<ElU16> for usize {
 const EHD1: u8 = 0x10;
 const EHD2: u8 = 0x81;
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct EOJ([ElU8; 3]);
+
+impl TryFrom<Vec<ElU8>> for EOJ {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Vec<ElU8>) -> anyhow::Result<Self> {
+        if value.len() != 3 {
+            anyhow::bail!("invalid EOJ");
+        }
+        Ok(Self([value[0], value[1], value[2]]))
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Packet {
-    pub tid: ElU16,      // Transaction ID (2 Bytes)
-    pub seoj: [ElU8; 3], // Source ECHONET Lite object specification (Class group code 1 Byte, Class code 1 Byte, Instance code 1 Byte)
-    pub deoj: [ElU8; 3], // Destination ECHONET Lite object specification (Class group code 1 Byte, Class code 1 Byte, Instance code 1 Byte)
-    pub esv: ESV,        // ECHONET Lite service (1 Byte)
-    pub opc: ElU8,       // Number of properties (1 Byte)
+    pub tid: ElU16, // Transaction ID (2 Bytes)
+    pub seoj: EOJ, // Source ECHONET Lite object specification (Class group code 1 Byte, Class code 1 Byte, Instance code 1 Byte)
+    pub deoj: EOJ, // Destination ECHONET Lite object specification (Class group code 1 Byte, Class code 1 Byte, Instance code 1 Byte)
+    pub esv: ESV,  // ECHONET Lite service (1 Byte)
+    pub opc: ElU8, // Number of properties (1 Byte)
     pub props: Vec<Prop>,
+}
+
+impl Packet {
+    pub fn is_to(&self, eoj: &EOJ) -> bool {
+        self.deoj == *eoj
+    }
+
+    pub fn is_from(&self, eoj: &EOJ) -> bool {
+        self.seoj == *eoj
+    }
+
+    pub fn is_normal_response(&self) -> bool {
+        match self.esv {
+            ESV::SetRes | ESV::GetRes | ESV::SetGetRes => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_prop(&self, epc: ElU8) -> Option<&Prop> {
+        self.props.iter().find(|prop| prop.epc == epc)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -83,7 +108,7 @@ pub struct Prop {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct EDT(Vec<ElU8>);
+pub struct EDT(pub Vec<ElU8>);
 impl From<Vec<u8>> for EDT {
     fn from(value: Vec<u8>) -> Self {
         Self(value.into_iter().map(ElU8).collect())
@@ -211,8 +236,8 @@ mod tests {
             ];
             let packet = Packet::try_from(&data[..]).unwrap();
             assert_eq!(packet.tid, ElU16(0xaa01));
-            assert_eq!(packet.seoj, [ElU8(0x05), ElU8(0xff), ElU8(0x01)]);
-            assert_eq!(packet.deoj, [ElU8(0x0e), ElU8(0xf0), ElU8(0x01)]);
+            assert_eq!(packet.seoj, EOJ([ElU8(0x05), ElU8(0xff), ElU8(0x01)]));
+            assert_eq!(packet.deoj, EOJ([ElU8(0x0e), ElU8(0xf0), ElU8(0x01)]));
             assert_eq!(packet.esv, ESV::Get);
             assert_eq!(packet.opc, ElU8(0x02));
             assert_eq!(packet.props.len(), 2);
@@ -248,8 +273,8 @@ mod tests {
             ];
             let packet = Packet::try_from(&data[..]).unwrap();
             assert_eq!(packet.tid, ElU16(0xbb01));
-            assert_eq!(packet.seoj, [ElU8(0x01), ElU8(0x30), ElU8(0x01)]);
-            assert_eq!(packet.deoj, [ElU8(0x05), ElU8(0xff), ElU8(0x01)]);
+            assert_eq!(packet.seoj, EOJ([ElU8(0x01), ElU8(0x30), ElU8(0x01)]));
+            assert_eq!(packet.deoj, EOJ([ElU8(0x05), ElU8(0xff), ElU8(0x01)]));
             assert_eq!(packet.esv, ESV::GetRes);
             assert_eq!(packet.opc, ElU8(0x04));
             assert_eq!(packet.props.len(), 4);
