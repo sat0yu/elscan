@@ -38,10 +38,14 @@ impl TryFrom<&Packet> for DiscoveryResponse {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SVI([ElU8; 4]);
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct SyncResponse {
     pub eoj: EOJ,
+    pub svi: SVI, // Standard Version Information
     pub anno_props: Vec<ElU8>,
     pub get_props: Vec<ElU8>,
     pub set_props: Vec<ElU8>,
@@ -58,6 +62,9 @@ impl TryFrom<&Packet> for SyncResponse {
         if !p.is_to(&controller) {
             anyhow::bail!("invalid DEOJ");
         }
+        let Some(svi) = p.get_prop(ElU8(0x82)) else {
+            anyhow::bail!("not found standard version information");
+        };
         let Some(anno) = p.get_prop(ElU8(0x9D)) else {
             anyhow::bail!("not found announcement property map");
         };
@@ -69,6 +76,7 @@ impl TryFrom<&Packet> for SyncResponse {
         };
         Ok(Self {
             eoj: p.seoj.clone(),
+            svi: SVI([svi.edt.0[0], svi.edt.0[1], svi.edt.0[2], svi.edt.0[3]]),
             anno_props: parse_property_map(&anno.edt),
             get_props: parse_property_map(&get.edt),
             set_props: parse_property_map(&set.edt),
@@ -190,6 +198,11 @@ mod tests {
             opc: ElU8(0x03),
             props: vec![
                 Prop {
+                    epc: ElU8(0x82),
+                    pdc: ElU8(0x04),
+                    edt: EDT(vec![ElU8(0x00), ElU8(0x00), ElU8(0x52), ElU8(0x00)]),
+                },
+                Prop {
                     epc: ElU8(0x9D),
                     pdc: ElU8(0x07),
                     edt: EDT(vec![
@@ -251,6 +264,7 @@ mod tests {
             response.unwrap(),
             SyncResponse {
                 eoj: EOJ::try_from(vec![ElU8(0x01), ElU8(0x30), ElU8(0x01)]).unwrap(),
+                svi: SVI([ElU8(0x00), ElU8(0x00), ElU8(0x52), ElU8(0x00)]),
                 anno_props: vec![
                     ElU8(0x80),
                     ElU8(0x81),
