@@ -59,6 +59,75 @@ pub struct Packet {
 }
 
 impl Packet {
+    pub fn new_discovery_request() -> Self {
+        Self {
+            tid: ElU16(0x0001),
+            seoj: EOJ([ElU8(0x05), ElU8(0xff), ElU8(0x01)]),
+            deoj: EOJ([ElU8(0x0e), ElU8(0xf0), ElU8(0x01)]),
+            esv: ESV::Get,
+            opc: ElU8(0x04),
+            props: vec![
+                Prop {
+                    epc: ElU8(0x82),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+                Prop {
+                    epc: ElU8(0x83),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+                Prop {
+                    epc: ElU8(0x8a),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+                Prop {
+                    epc: ElU8(0xd6),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+            ],
+        }
+    }
+
+    pub fn new_sync_request(deoj: EOJ) -> Self {
+        Self {
+            tid: ElU16(0x0001),
+            seoj: EOJ([ElU8(0x05), ElU8(0xff), ElU8(0x01)]),
+            deoj,
+            esv: ESV::Get,
+            opc: ElU8(0x05),
+            props: vec![
+                Prop {
+                    epc: ElU8(0x82),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+                Prop {
+                    epc: ElU8(0x83),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+                Prop {
+                    epc: ElU8(0x9d),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+                Prop {
+                    epc: ElU8(0x9e),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+                Prop {
+                    epc: ElU8(0x9f),
+                    pdc: ElU8(0x00),
+                    edt: EDT(vec![]),
+                },
+            ],
+        }
+    }
+
     pub fn is_to(&self, eoj: &EOJ) -> bool {
         self.deoj == *eoj
     }
@@ -77,26 +146,50 @@ impl Packet {
     pub fn get_prop(&self, epc: ElU8) -> Option<&Prop> {
         self.props.iter().find(|prop| prop.epc == epc)
     }
+
+    pub fn to_bytes(self) -> Vec<u8> {
+        let mut buf = vec![];
+        buf.push(EHD1);
+        buf.push(EHD2);
+        buf.extend_from_slice(&self.tid.0.to_be_bytes());
+        buf.extend_from_slice(&[self.seoj.0[0].0, self.seoj.0[1].0, self.seoj.0[2].0]);
+        buf.extend_from_slice(&[self.deoj.0[0].0, self.deoj.0[1].0, self.deoj.0[2].0]);
+        buf.push(self.esv as u8);
+        buf.push(self.opc.0);
+        for prop in self.props {
+            buf.push(prop.epc.0);
+            buf.push(prop.pdc.0);
+            buf.extend_from_slice(
+                prop.edt
+                    .0
+                    .iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            );
+        }
+        buf
+    }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ESV {
-    SetI,
-    SetC,
-    Get,
-    InfReq,
-    SetGet,
-    SetRes,
-    GetRes,
-    Inf,
-    InfC,
-    InfCRes,
-    SetGetRes,
-    SetISNA,
-    SetCSNA,
-    GetSNA,
-    InfSNA,
-    SetGetSNA,
+    SetISNA = 0x50,
+    SetCSNA = 0x51,
+    GetSNA = 0x52,
+    InfSNA = 0x53,
+    SetGetSNA = 0x5E,
+    SetI = 0x60,
+    SetC = 0x61,
+    Get = 0x62,
+    InfReq = 0x63,
+    SetGet = 0x6E,
+    SetRes = 0x71,
+    GetRes = 0x72,
+    Inf = 0x73,
+    InfC = 0x74,
+    InfCRes = 0x7A,
+    SetGetRes = 0x7E,
 }
 
 #[allow(dead_code)]
@@ -109,6 +202,7 @@ pub struct Prop {
 
 #[derive(Debug, PartialEq)]
 pub struct EDT(pub Vec<ElU8>);
+
 impl From<Vec<u8>> for EDT {
     fn from(value: Vec<u8>) -> Self {
         Self(value.into_iter().map(ElU8).collect())
