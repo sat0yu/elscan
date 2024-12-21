@@ -68,10 +68,10 @@ impl TryFrom<&Packet> for SyncResponse {
         let Some(anno) = p.get_prop(ElU8(0x9D)) else {
             anyhow::bail!("not found announcement property map");
         };
-        let Some(get) = p.get_prop(ElU8(0x9E)) else {
+        let Some(get) = p.get_prop(ElU8(0x9F)) else {
             anyhow::bail!("not found get property map");
         };
-        let Some(set) = p.get_prop(ElU8(0x9F)) else {
+        let Some(set) = p.get_prop(ElU8(0x9E)) else {
             anyhow::bail!("not found set property map");
         };
         Ok(Self {
@@ -273,7 +273,7 @@ mod tests {
                     ElU8(0xA0),
                     ElU8(0xB0),
                 ],
-                get_props: vec![
+                set_props: vec![
                     ElU8(0x80),
                     ElU8(0x81),
                     ElU8(0x8F),
@@ -283,7 +283,7 @@ mod tests {
                     ElU8(0xB0),
                     ElU8(0xB3),
                 ],
-                set_props: vec![
+                get_props: vec![
                     ElU8(0x80),
                     ElU8(0xA0),
                     ElU8(0xB0),
